@@ -8,14 +8,17 @@ Browser RTS, up to 8 players, authoritative server. Read `PLAN.md` for scope and
 - `packages/protocol`: wire formats and message names shared by server and clients.
 - `packages/server`: Colyseus rooms. Runs the sim, validates commands, sends snapshots.
 - `packages/bot`: headless player + the M0 load-test harness (`npm run spike`).
-- `packages/client`: Phaser renderer + HTML UI (from M1).
+- `packages/client`: Phaser 4 renderer + HTML HUD. Renders interpolated snapshots, sends commands. No game rules.
 
 ## Commands
 
 - `npm test`: Vitest, all packages
 - `npm run typecheck`
 - `npm run server`: dev server on :2567
+- `npm run client`: Vite dev client on :5173 (connects to :2567; `?server=ws://host:port` overrides)
+- `npm run smoke`: two-player browser test (real server + client via Playwright)
 - `npm run spike [-- --mode binary --units 75 --seconds 60 --write]`: 8-bot load test
+- `npm run deploy`: rsync to the Oracle VM, build, restart the `koe` systemd service (serves game + page on :2567)
 
 ## Rules
 

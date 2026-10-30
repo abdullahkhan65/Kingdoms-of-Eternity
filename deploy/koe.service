@@ -1,0 +1,17 @@
+[Unit]
+Description=Kingdoms of Eternity game server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=ubuntu
+WorkingDirectory=/home/ubuntu/koe
+Environment=PORT=2567
+Environment=CLIENT_DIST=/home/ubuntu/koe/packages/client/dist
+Environment=NODE_ENV=production
+ExecStart=/usr/local/bin/node --import tsx packages/server/src/main.ts
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

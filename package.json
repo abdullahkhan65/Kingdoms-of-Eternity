@@ -10,13 +10,18 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "server": "tsx packages/server/src/main.ts",
-    "spike": "tsx packages/bot/src/spike.ts"
+    "spike": "tsx packages/bot/src/spike.ts",
+    "client": "npm run dev -w @koe/client",
+    "build:client": "npm run build -w @koe/client",
+    "smoke": "tsx packages/client/test/smoke.ts",
+    "deploy": "./scripts/deploy.sh"
   },
   "engines": {
     "node": ">=22"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
+    "playwright": "^1.64.1",
     "tsx": "^4.23.15",
     "typescript": "^5.9.3",
     "vitest": "^5.0.5"

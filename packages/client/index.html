@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Kingdoms of Eternity</title>
+    <style>
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #1b2a17; font: 14px/1.4 system-ui, sans-serif; color: #f3f4f6; }
+      #game { position: fixed; inset: 0; }
+      .panel { position: fixed; left: 12px; background: rgba(0, 0, 0, 0.6); padding: 6px 10px; border-radius: 6px; pointer-events: none; }
+      #hud { top: 12px; }
+      #help { bottom: 12px; color: #d1d5db; font-size: 12px; }
+      #status { top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 16px; }
+      .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+    </style>
+  </head>
+  <body>
+    <div id="game"></div>
+    <div id="hud" class="panel"></div>
+    <div id="status" class="panel"></div>
+    <div id="help" class="panel">Left-click / drag: select · Shift: add · Right-click: move · WASD / arrows / screen edge: scroll · Wheel: zoom</div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

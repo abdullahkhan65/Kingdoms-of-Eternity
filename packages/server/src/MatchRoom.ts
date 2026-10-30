@@ -1,8 +1,8 @@
 import { performance } from "node:perf_hooks";
 import { Room, type Client } from "@colyseus/core";
 import { schema, t, type SchemaType } from "@colyseus/schema";
-import { Msg, SnapshotEncoder, type SyncMode } from "@koe/protocol";
-import { applyCommand, createWorld, spawnPlayerStart, step, TICK_RATE, type World } from "@koe/sim";
+import { Msg, SnapshotEncoder, type SyncMode, type Welcome } from "@koe/protocol";
+import { applyCommand, createWorld, removePlayerUnits, spawnPlayerStart, step, TICK_RATE, type World } from "@koe/sim";
 import { StatsCollector } from "./stats";
 
 /** Snapshots go out every Nth sim tick: 20 Hz sim / 2 = 10 Hz network. */
@@ -28,7 +28,7 @@ interface PlayerData {
 export class MatchRoom extends Room<{ state: MatchState; client: Client<{ userData: PlayerData }> }> {
   private world!: World;
   private mode: SyncMode = "binary";
-  private unitsPerPlayer = 75;
+  private unitsPerPlayer = 12;
   private pending: Array<{ player: number; payload: unknown }> = [];
   private stats = new StatsCollector();
   private loop?: NodeJS.Timeout;
@@ -36,7 +36,7 @@ export class MatchRoom extends Room<{ state: MatchState; client: Client<{ userDa
   override onCreate(options: MatchOptions): void {
     this.mode = options.mode ?? "binary";
     this.maxClients = options.players ?? 8;
-    this.unitsPerPlayer = options.unitsPerPlayer ?? 75;
+    this.unitsPerPlayer = options.unitsPerPlayer ?? 12;
     this.world = createWorld({ seed: options.seed ?? 1, widthTiles: 128, heightTiles: 128 });
 
     if (this.mode === "schema") {
@@ -53,6 +53,9 @@ export class MatchRoom extends Room<{ state: MatchState; client: Client<{ userDa
       client.send(Msg.Stats, this.stats.report(this.world.units.size));
     });
     this.onMessage(Msg.StatsReset, () => this.stats.reset());
+    this.onMessage(Msg.Ping, (client, sentAt: unknown) => {
+      if (typeof sentAt === "number") client.send(Msg.Pong, sentAt);
+    });
 
     this.startLoop();
   }
@@ -86,10 +89,32 @@ export class MatchRoom extends Room<{ state: MatchState; client: Client<{ userDa
   }
 
   override onJoin(client: Client<{ userData: PlayerData }>): void {
-    const player = this.clients.length - 1;
+    const player = this.freePlayerSlot();
     client.userData = { player, encoder: new SnapshotEncoder() };
     spawnPlayerStart(this.world, player, this.unitsPerPlayer);
-    client.send(Msg.Welcome, { player });
+    const welcome: Welcome = {
+      player,
+      mapWidth: this.world.width,
+      mapHeight: this.world.height,
+      tickRate: TICK_RATE,
+      sendEveryTicks: SEND_EVERY_TICKS,
+    };
+    client.send(Msg.Welcome, welcome);
+  }
+
+  override onLeave(client: Client<{ userData: PlayerData }>): void {
+    // No reconnection yet (M4): a player who leaves takes their units with them,
+    // so their slot can be reused without handing units to the next player.
+    const removed = removePlayerUnits(this.world, client.userData!.player);
+    if (this.mode === "schema") for (const id of removed) this.state.units.delete(String(id));
+  }
+
+  /** Lowest player number not used by a connected client. Not clients.length: that repeats a live slot after someone leaves. */
+  private freePlayerSlot(): number {
+    const taken = new Set(this.clients.map((c) => c.userData?.player));
+    let slot = 0;
+    while (taken.has(slot)) slot++;
+    return slot;
   }
 
   private tick(): void {

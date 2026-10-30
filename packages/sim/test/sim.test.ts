@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyCommand, createWorld, hashWorld, randomInt, spawnPlayerStart, spawnUnit, step, TILE, type World } from "../src";
+import { applyCommand, createWorld, hashWorld, randomInt, removePlayerUnits, spawnPlayerStart, spawnUnit, step, TILE, type World } from "../src";
 
 function world(): World {
   return createWorld({ seed: 42, widthTiles: 64, heightTiles: 64 });
@@ -80,5 +80,15 @@ describe("determinism", () => {
 
   it("same seed and commands give the same world", () => {
     expect(playMatch()).toBe(playMatch());
+  });
+});
+
+describe("removePlayerUnits", () => {
+  it("removes only that player's units", () => {
+    const w = world();
+    spawnPlayerStart(w, 0, 5);
+    spawnPlayerStart(w, 1, 5);
+    expect(removePlayerUnits(w, 0)).toHaveLength(5);
+    expect([...w.units.values()].every((u) => u.owner === 1)).toBe(true);
   });
 });

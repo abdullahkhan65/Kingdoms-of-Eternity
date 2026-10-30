@@ -70,6 +70,16 @@ export function spawnPlayerStart(world: World, owner: number, count: number): Un
   return units;
 }
 
+/** Removes every unit owned by `owner` (player left the match). Returns the removed ids. */
+export function removePlayerUnits(world: World, owner: number): number[] {
+  const removed: number[] = [];
+  for (const u of world.units.values()) {
+    if (u.owner === owner) removed.push(u.id);
+  }
+  for (const id of removed) world.units.delete(id);
+  return removed;
+}
+
 export function clampX(world: World, x: number): number {
   return Math.min(world.width - 1, Math.max(0, x));
 }

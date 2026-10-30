@@ -11,3 +11,6 @@ One line per decision, newest last. Don't re-argue these without new evidence.
 - 2026-10-31: Pop cap 75 per player for MVP. M0 worst case (all 600 units moving, no fog) is 23.6 KB/s per client, under the 30 KB/s budget; 150/player is 46.6 KB/s.
 - 2026-10-31: Game server host = Oracle Cloud Always Free, Frankfurt (eu-frankfurt-1, AD-1), VM.Standard.A1.Flex 4 OCPU / 24 GB, Ubuntu 24.04, public IP 89.168.127.10, SSH key ~/.ssh/oracle_koe. Port 2567 open in the VCN security list and in iptables. AD-2 had no A1 capacity.
 - 2026-10-31: M0 gate passed on that VM (0.50 ms tick p99, 23.7 KB/s per client over the internet). The free ARM VM is faster per tick than the M4 dev machine.
+- 2026-10-31: express (already a dependency of @colyseus/ws-transport) is declared directly in @koe/server to serve the built client when CLIENT_DIST is set. One URL, one open port; no separate static host needed for playtests.
+- 2026-10-31: Client uses Phaser 4.2 (WebGL) + Vite; HUD is plain HTML over the canvas. Clients render ~150 ms in the past (1.5 snapshot intervals) and interpolate; move orders get instant cosmetic feedback (marker + order lines).
+- 2026-10-31: VM runs the server as systemd unit `koe` (deploy/koe.service), deployed with `npm run deploy`. Game + client page on one port: http://89.168.127.10:2567.

@@ -13,8 +13,12 @@ Things noticed but deliberately not done in the current milestone.
 - If most early players are in South Asia / the Gulf, consider a paid VPS nearer them (e.g. Dubai or Mumbai) once demand is proven. Free tier only works in the home region.
 
 ## Server ops
-- The server on the VM runs under `nohup` (log: ~/koe-server.log). Move it to a systemd service with auto-restart before playtests.
+- Playtest URL is plain http (http://89.168.127.10:2567). Fine for friends; for a public page (itch.io / Cloudflare Pages are https) the server needs wss: TLS via Caddy + sslip.io, or Cloudflare Tunnel.
+- Run `npm run smoke` in CI (needs `npx playwright install --with-deps chromium` in the workflow).
 - Oracle may reclaim idle Always Free VMs (very low CPU for 7 days). Watch for the warning email.
 
-## Decide in M1
-- Phaser 3 vs Phaser 4 (4.x is now stable on npm). Pick one before writing the client.
+## M1 remaining
+- Terrain obstacles + A* pathfinding (units currently walk in straight lines through everything).
+- Minimap, control groups (Ctrl+1–9), idle/selection hotkeys.
+- Server-side room test for player-slot reuse (the clients.length bug fixed in MatchRoom.freePlayerSlot).
+- Client bundle is ~414 KB gzipped (Phaser). OK for now; revisit before public launch.
