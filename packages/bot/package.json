@@ -1,0 +1,13 @@
+{
+  "name": "@koe/bot",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "dependencies": {
+    "@colyseus/sdk": "^0.18.8",
+    "@koe/sim": "*",
+    "@koe/protocol": "*"
+  }
+}
