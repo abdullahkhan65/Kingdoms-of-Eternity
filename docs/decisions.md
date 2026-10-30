@@ -9,3 +9,5 @@ One line per decision, newest last. Don't re-argue these without new evidence.
 - 2026-10-31: 1 tile = 64 world units, 128×128 tile map, so positions fit in int16. Unit ids are u16 on the wire; the encoder throws past 65535 (id recycling is in the backlog).
 - 2026-10-31: Network snapshots at 10 Hz (every 2nd sim tick); clients interpolate.
 - 2026-10-31: Pop cap 75 per player for MVP. M0 worst case (all 600 units moving, no fog) is 23.6 KB/s per client, under the 30 KB/s budget; 150/player is 46.6 KB/s.
+- 2026-10-31: Game server host = Oracle Cloud Always Free, Frankfurt (eu-frankfurt-1, AD-1), VM.Standard.A1.Flex 4 OCPU / 24 GB, Ubuntu 24.04, public IP 89.168.127.10, SSH key ~/.ssh/oracle_koe. Port 2567 open in the VCN security list and in iptables. AD-2 had no A1 capacity.
+- 2026-10-31: M0 gate passed on that VM (0.50 ms tick p99, 23.7 KB/s per client over the internet). The free ARM VM is faster per tick than the M4 dev machine.

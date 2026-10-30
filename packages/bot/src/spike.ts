@@ -51,7 +51,9 @@ const modes: SyncMode[] = args.mode === "both" ? ["binary", "schema"] : [args.mo
 const sleep = (s: number) => new Promise((r) => setTimeout(r, s * 1000));
 
 async function startLocalServer(port: number): Promise<ChildProcess> {
-  const child = spawn("npx", ["tsx", "packages/server/src/main.ts"], {
+  // Run node directly (not via npx) so kill() reaches the server itself; an
+  // orphaned grandchild kept SSH sessions open after the spike finished.
+  const child = spawn(process.execPath, ["--import", "tsx", "packages/server/src/main.ts"], {
     env: { ...process.env, PORT: String(port) },
     stdio: ["ignore", "pipe", "inherit"],
   });

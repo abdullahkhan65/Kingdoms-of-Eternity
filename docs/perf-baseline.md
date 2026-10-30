@@ -14,3 +14,22 @@ Host: Apple M4, 10 cores, Node v22.22.3
 |---|---:|---:|---|---:|---:|---:|---|---|---|---|
 | binary | 600 | 20.0 | 0.71 / 0.88 / 1.68 | 2.76 | 4.5% | 128 MB | 23.6 / 23.6 | 960 / 0 | PASS | PASS |
 | schema | 600 | 20.0 | 1.27 / 2.97 / 4.34 | 0.00 | 4.8% | 98 MB | 48.3 / 48.3 | 960 / 0 | PASS | FAIL |
+
+### Oracle Cloud Always Free (Frankfurt, VM.Standard.A1.Flex 4 OCPU / 24 GB), bots on the same VM
+
+Host: Neoverse-N1, 4 cores, Node v22.22.3
+
+| Mode | Units | Sim Hz | Tick p50 / p99 / max (ms) | Snapshot build p99 (ms) | Server CPU | RSS | Per-client KB/s avg / max | Cmds ok / rejected | Tick budget | Bandwidth budget |
+|---|---:|---:|---|---:|---:|---:|---|---|---|---|
+| binary | 600 | 20.0 | 0.32 / 0.50 / 2.30 | 1.93 | 3.1% | 139 MB | 23.6 / 23.6 | 955 / 0 | PASS | PASS |
+| schema | 600 | 20.0 | 0.60 / 0.76 / 1.21 | 0.00 | 2.4% | 105 MB | 48.3 / 48.3 | 956 / 0 | PASS | FAIL |
+
+### Over the internet: 8 bots on a home connection in Pakistan → Oracle Frankfurt
+
+TCP round-trip Pakistan → Frankfurt: min 211 / median 218 / max 252 ms.
+
+| Mode | Units | Sim Hz | Tick p50 / p99 / max (ms) | Snapshot build p99 (ms) | Server CPU | RSS | Per-client KB/s avg / max | Cmds ok / rejected | Tick budget | Bandwidth budget |
+|---|---:|---:|---|---:|---:|---:|---|---|---|---|
+| binary | 600 | 20.0 | 0.36 / 0.50 / 0.66 | 2.99 | 4.3% | 103 MB | 23.7 / 23.7 | 960 / 0 | PASS | PASS |
+
+**M0 verdict: server and bandwidth pass on the free VM. Latency from Pakistan (~218 ms) misses the 150 ms target. See backlog.**
