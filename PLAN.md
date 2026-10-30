@@ -1,5 +1,7 @@
 # Kingdoms of Eternity — Execution Plan v3
 
+> **Status (2026-10-31):** the MVP scope in §3 is built and live at http://89.168.127.10:2567 (Oracle Always Free, Frankfurt): lobby with invite links, bots, teams and civs; economy, buildings, training, two ages, combat, fog of war, victory; rejoin after disconnect. Verified by 34 unit tests, an 18-step two-player browser test, bot-vs-bot balance runs and an 8-player load test. **Next: M6, the public proof** (playtests with real people, then §8 metrics). See `docs/backlog.md`.
+
 This is a revision of `requirement-doc.md` (v2.0). The vision, principles and "build → prove → raise" strategy stay the same. This plan changes **what we build first, in what order, and on what infrastructure**, so the first proof can be reached solo, part-time, for $0.
 
 ---

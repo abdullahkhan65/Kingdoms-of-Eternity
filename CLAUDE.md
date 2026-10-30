@@ -4,10 +4,10 @@ Browser RTS, up to 8 players, authoritative server. Read `PLAN.md` for scope and
 
 ## Layout
 
-- `packages/sim`: all game rules. Pure TypeScript, no dependencies.
+- `packages/sim`: all game rules. Pure TypeScript, no dependencies. `defs.ts` holds every tunable number; `step.ts` the per-tick systems; `ai.ts` the computer opponent.
 - `packages/protocol`: wire formats and message names shared by server and clients.
 - `packages/server`: Colyseus rooms. Runs the sim, validates commands, sends snapshots.
-- `packages/bot`: headless player + the M0 load-test harness (`npm run spike`).
+- `packages/bot`: headless network player, load test (`npm run spike`) and civ balance check (`npm run balance`).
 - `packages/client`: Phaser 4 renderer + HTML HUD. Renders interpolated snapshots, sends commands. No game rules.
 
 ## Commands
@@ -17,7 +17,8 @@ Browser RTS, up to 8 players, authoritative server. Read `PLAN.md` for scope and
 - `npm run server`: dev server on :2567
 - `npm run client`: Vite dev client on :5173 (connects to :2567; `?server=ws://host:port` overrides)
 - `npm run smoke`: two-player browser test (real server + client via Playwright)
-- `npm run spike [-- --mode binary --units 75 --seconds 60 --write]`: 8-bot load test
+- `npm run spike [-- --units 75 --seconds 60 --endpoint ws://host:2567 --write]`: 8-player load test
+- `npm run balance`: bot-vs-bot matches across seeds with civs swapped
 - `npm run deploy`: rsync to the Oracle VM, build, restart the `koe` systemd service (serves game + page on :2567)
 
 ## Rules

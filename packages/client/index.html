@@ -5,20 +5,135 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Kingdoms of Eternity</title>
     <style>
-      html, body { margin: 0; height: 100%; overflow: hidden; background: #1b2a17; font: 14px/1.4 system-ui, sans-serif; color: #f3f4f6; }
+      :root {
+        --bg: #14110d; --panel: rgba(28, 23, 17, 0.92); --edge: #6b5634; --text: #f1e7d0; --muted: #b7a98b;
+        --gold: #e8b33c; --ok: #4ade80; --bad: #f87171; --btn: #3b2f1f; --btn-hi: #57452b;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); font: 14px/1.4 system-ui, sans-serif; color: var(--text); user-select: none; }
+      button { font: inherit; color: var(--text); background: var(--btn); border: 1px solid var(--edge); border-radius: 6px; padding: 8px 14px; cursor: pointer; }
+      button:hover:not(:disabled) { background: var(--btn-hi); }
+      button:disabled { opacity: 0.45; cursor: default; }
+      button.primary { background: #7a5a1e; border-color: var(--gold); font-weight: 600; }
+      input, select { font: inherit; color: var(--text); background: #0f0c08; border: 1px solid var(--edge); border-radius: 6px; padding: 7px 10px; }
+      .hidden { display: none !important; }
+
+      /* Menu and lobby */
+      .screen { position: fixed; inset: 0; display: grid; place-items: center; padding: 16px;
+        background: radial-gradient(ellipse at 50% 30%, #2d3a22 0%, #14110d 70%); }
+      .card { width: min(560px, 100%); background: var(--panel); border: 1px solid var(--edge); border-radius: 12px; padding: 24px; box-shadow: 0 20px 60px rgba(0,0,0,.5); }
+      h1 { margin: 0 0 4px; font: 700 34px/1.1 Georgia, serif; color: var(--gold); letter-spacing: .5px; }
+      .tag { color: var(--muted); margin: 0 0 20px; }
+      .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 10px 0; }
+      .row > input { flex: 1; min-width: 120px; }
+      .stack { display: grid; gap: 8px; margin-top: 16px; }
+      .error { color: var(--bad); min-height: 20px; margin-top: 8px; }
+      .seats { width: 100%; border-collapse: collapse; margin: 12px 0; }
+      .seats td { padding: 6px 4px; border-bottom: 1px solid rgba(107, 86, 52, .4); }
+      .swatch { display: inline-block; width: 12px; height: 12px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; border: 1px solid rgba(0,0,0,.5); }
+      .code { font: 600 18px ui-monospace, monospace; color: var(--gold); }
+      .small { font-size: 12px; color: var(--muted); }
+
+      /* In game */
       #game { position: fixed; inset: 0; }
-      .panel { position: fixed; left: 12px; background: rgba(0, 0, 0, 0.6); padding: 6px 10px; border-radius: 6px; pointer-events: none; }
-      #hud { top: 12px; }
-      #help { bottom: 12px; color: #d1d5db; font-size: 12px; }
-      #status { top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 16px; }
-      .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+      #topbar { position: fixed; top: 0; left: 0; right: 0; height: 36px; display: flex; gap: 18px; align-items: center; padding: 0 12px;
+        background: var(--panel); border-bottom: 1px solid var(--edge); z-index: 5; }
+      #topbar .res { font-weight: 600; min-width: 64px; }
+      #topbar .spacer { flex: 1; }
+      #topbar button { padding: 3px 10px; font-size: 13px; }
+      #bottom { position: fixed; left: 0; right: 0; bottom: 0; height: 168px; display: flex; gap: 10px; padding: 8px;
+        background: var(--panel); border-top: 1px solid var(--edge); z-index: 5; }
+      #info { flex: 1; min-width: 0; overflow: hidden; }
+      #info h3 { margin: 0 0 4px; font: 600 16px Georgia, serif; color: var(--gold); }
+      .bar { height: 8px; background: #000; border-radius: 4px; overflow: hidden; margin: 4px 0; width: 220px; max-width: 100%; }
+      .bar > div { height: 100%; background: var(--ok); }
+      .queue { display: flex; gap: 4px; margin-top: 6px; flex-wrap: wrap; }
+      .queue button { padding: 2px 6px; font-size: 12px; }
+      .multi { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+      .multi span { padding: 2px 6px; border-radius: 4px; background: var(--btn); font-size: 12px; }
+      #commands { display: grid; grid-template-columns: repeat(3, 108px); grid-auto-rows: 46px; gap: 6px; align-content: start; }
+      #commands button { padding: 3px 18px 3px 6px; font-size: 12px; line-height: 1.2; text-align: left; position: relative; }
+      #commands button .key { position: absolute; top: 2px; right: 5px; color: var(--gold); font-weight: 700; }
+      #commands button .cost { display: block; color: var(--muted); font-size: 11px; }
+      #minimap { width: 152px; height: 152px; border: 1px solid var(--edge); image-rendering: pixelated; cursor: pointer; flex: none; }
+      #toast { position: fixed; top: 48px; left: 50%; transform: translateX(-50%); z-index: 6; pointer-events: none;
+        background: rgba(0,0,0,.75); padding: 6px 14px; border-radius: 6px; transition: opacity .3s; }
+      #end { position: fixed; inset: 0; display: grid; place-items: center; background: rgba(0,0,0,.55); z-index: 10; }
+      #end h2 { font: 700 44px Georgia, serif; margin: 0 0 12px; color: var(--gold); text-align: center; }
+      #status { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 20; background: var(--panel); padding: 12px 18px; border-radius: 8px; border: 1px solid var(--edge); }
+      @media (max-width: 760px) {
+        #commands { grid-template-columns: repeat(3, 84px); }
+        #minimap { width: 110px; height: 110px; }
+        #topbar { gap: 10px; font-size: 12px; overflow-x: auto; }
+      }
     </style>
   </head>
   <body>
-    <div id="game"></div>
-    <div id="hud" class="panel"></div>
-    <div id="status" class="panel"></div>
-    <div id="help" class="panel">Left-click / drag: select · Shift: add · Right-click: move · WASD / arrows / screen edge: scroll · Wheel: zoom</div>
+    <section id="menu" class="screen">
+      <div class="card">
+        <h1>Kingdoms of Eternity</h1>
+        <p class="tag">Build a realm. Raise an army. Outlast your rivals.</p>
+        <div class="row"><label for="name">Your name</label><input id="name" maxlength="20" placeholder="Name" /></div>
+        <div class="stack">
+          <button id="play-bot" class="primary">Play vs Computer</button>
+          <button id="create">Create a Game for Friends</button>
+          <div class="row"><input id="join-code" placeholder="Room code" /><button id="join">Join</button></div>
+        </div>
+        <div id="menu-error" class="error"></div>
+        <p class="small">Up to 8 players. Share the invite link from the lobby.</p>
+      </div>
+    </section>
+
+    <section id="lobby" class="screen hidden">
+      <div class="card">
+        <h1>Lobby</h1>
+        <div class="row">Room code <span id="room-code" class="code"></span><button id="copy-link">Copy invite link</button></div>
+        <table class="seats"><tbody id="seats"></tbody></table>
+        <div id="civ-help" class="small"></div>
+        <div class="row" id="host-controls">
+          <button id="add-bot">Add computer player</button>
+          <span style="flex:1"></span>
+          <button id="start" class="primary">Start game</button>
+        </div>
+        <div id="wait-host" class="small">Waiting for the host to start…</div>
+        <div class="row"><button id="leave-lobby">Leave</button></div>
+      </div>
+    </section>
+
+    <div id="game" class="hidden"></div>
+    <div id="topbar" class="hidden">
+      <span class="res" id="r-food">🌾 0</span>
+      <span class="res" id="r-wood">🪵 0</span>
+      <span class="res" id="r-gold">🪙 0</span>
+      <span class="res" id="r-pop">👥 0/0</span>
+      <span id="r-age"></span>
+      <button id="idle-btn" title="Select an idle villager (.)">Idle villagers: 0</button>
+      <span class="spacer"></span>
+      <span id="r-ping" class="small"></span>
+      <button id="help-btn">Help</button>
+      <button id="resign-btn">Resign</button>
+    </div>
+    <div id="bottom" class="hidden">
+      <div id="info"></div>
+      <div id="commands"></div>
+      <canvas id="minimap" width="152" height="152"></canvas>
+    </div>
+    <div id="toast" style="opacity:0"></div>
+    <div id="end" class="hidden"><div class="card"><h2 id="end-title"></h2><p id="end-text" style="text-align:center"></p>
+      <div class="row" style="justify-content:center"><button id="end-watch">Keep watching</button><button id="end-menu" class="primary">Main menu</button></div></div></div>
+    <div id="help" class="screen hidden" style="background: rgba(0,0,0,.6); z-index: 15;"><div class="card">
+      <h1 style="font-size:26px">How to play</h1>
+      <p>Gather <b>food</b>, <b>wood</b> and <b>gold</b> with villagers, build Houses to grow your population, train an army, and destroy every enemy <b>Town Center</b>.</p>
+      <p class="small">
+        <b>Left-click / drag</b> select · <b>Shift</b> add to selection · <b>Right-click</b> move, gather, build, attack, or set a rally point<br />
+        <b>Q W E R T Y</b> buttons in the command panel · <b>A</b> + click attack-move · <b>S</b> stop · <b>Del</b> delete<br />
+        <b>Arrows / screen edge / middle-drag</b> scroll · <b>Wheel</b> zoom · <b>Space</b> center on selection · <b>.</b> idle villager · <b>H</b> Town Center<br />
+        <b>Ctrl+1–9</b> make group · <b>1–9</b> select group · <b>Esc</b> cancel
+      </p>
+      <p class="small">Counters: Spearmen beat Scout Riders · Scout Riders beat Archers · Archers beat Spearmen · Swordsmen are strong all-rounders.</p>
+      <button id="help-close" class="primary">Got it</button>
+    </div></div>
+    <div id="status" class="hidden"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
