@@ -1,10 +1,16 @@
 import Phaser from "phaser";
 import { EF, type EntityView } from "@koe/protocol";
 import {
-  BUILDINGS, GAIA, MAX_UNITS_PER_COMMAND, NODES, T, TILE, UNITS, markVision,
+  BUILDINGS, FARM_FOOD, GAIA, MAX_UNITS_PER_COMMAND, NODES, T, TILE, UNITS, markVision,
   type Command, type Entity, type World,
 } from "@koe/sim";
+import {
+  FOOT_OFFSET, RES, TREE_OFFSET, TREE_VARIANTS, UNIT_HEIGHT, berriesTexture, buildingGeometry, buildingTexture,
+  effectTextures, foundationTexture, goldTexture, mix, treeOrigin, treeTexture, unitOrigin, unitTexture, type Frame,
+} from "./art";
+import { DEPTH, Fx, worldDepth } from "./fx";
 import type { Net } from "./net";
+import { TERRAIN_PX, paintTerrain } from "./terrain";
 
 export const PLAYER_COLORS = [0x3b82f6, 0xef4444, 0x22c55e, 0xeab308, 0x06b6d4, 0xa855f7, 0xf97316, 0xe5e7eb];
 export const colorCss = (slot: number) => `#${(PLAYER_COLORS[slot % PLAYER_COLORS.length] ?? 0xffffff).toString(16).padStart(6, "0")}`;
@@ -19,6 +25,24 @@ const FOG_EVERY_MS = 200;
 const OCCUPANCY_EVERY_MS = 400;
 
 type Mode = { k: "normal" } | { k: "place"; building: number } | { k: "attack" };
+
+/** What's drawn for one entity, plus what we remember about it between frames. */
+interface View {
+  main: Phaser.GameObjects.Image;
+  shadow?: Phaser.GameObjects.Image;
+  foundation?: Phaser.GameObjects.Image;
+  last: EntityView;
+  face: 1 | -1;
+  movedAt: number;
+  working: EntityView | null;
+  workCheckAt: number;
+  fxAt: number;
+  frame: Frame;
+}
+
+const colorOf = (slot: number) => PLAYER_COLORS[slot % PLAYER_COLORS.length]!;
+/** Stable per-entity variety (tree shape, mirroring) that every client agrees on. */
+const variety = (id: number) => (Math.imul(id, 2654435761) >>> 0) % 997;
 
 /**
  * Draws the match and turns input into commands. Everything shown comes from
@@ -36,9 +60,13 @@ export class GameScene extends Phaser.Scene {
   /** Called at the end of create(), once the scene can be used. */
   onReady: () => void = () => {};
 
-  private sprites = new Map<number, Phaser.GameObjects.Image>();
+  private views = new Map<number, View>();
+  private fx!: Fx;
   private overlay!: Phaser.GameObjects.Graphics;
   private ghost!: Phaser.GameObjects.Graphics;
+  private ghostSprite!: Phaser.GameObjects.Image;
+  /** Per tile: 1 + id of the building or resource on it, or 0. */
+  private occupant!: Int32Array;
   private fogCanvas!: Phaser.Textures.CanvasTexture;
   private occupancy!: Uint8Array;
   private groups = new Map<number, number[]>();
@@ -72,12 +100,15 @@ export class GameScene extends Phaser.Scene {
   create(): void {
     this.fog = new Uint8Array(this.cols * this.rows);
     this.occupancy = new Uint8Array(this.cols * this.rows);
+    this.occupant = new Int32Array(this.cols * this.rows);
     this.createTerrain();
-    this.createTextures();
+    effectTextures(this);
+    this.fx = new Fx(this);
     this.fogCanvas = this.textures.createCanvas("fog", this.cols, this.rows)!;
     this.add.image(0, 0, "fog").setOrigin(0, 0).setScale(TILE).setDepth(8);
     this.overlay = this.add.graphics().setDepth(9);
     this.ghost = this.add.graphics().setDepth(10);
+    this.ghostSprite = this.add.image(0, 0, "puff").setScale(1 / RES).setDepth(10).setVisible(false);
 
     this.cameras.main.setBounds(0, 0, this.cols * TILE, this.rows * TILE);
     this.layout();
@@ -98,7 +129,7 @@ export class GameScene extends Phaser.Scene {
     const entities = this.net.sample(performance.now());
     if (entities) {
       this.entities = entities;
-      this.syncSprites();
+      this.syncSprites(time);
       if (!this.centered) this.centerOnHome();
     }
     if (time - this.lastFog > FOG_EVERY_MS) {
@@ -254,118 +285,214 @@ export class GameScene extends Phaser.Scene {
 
   private createTerrain(): void {
     const { cols, rows, terrain } = this.net.started!;
-    const scale = 4;
-    const canvas = document.createElement("canvas");
-    canvas.width = cols * scale;
-    canvas.height = rows * scale;
-    const ctx = canvas.getContext("2d")!;
-    const img = ctx.createImageData(canvas.width, canvas.height);
-    for (let py = 0; py < canvas.height; py++) {
-      for (let px = 0; px < canvas.width; px++) {
-        const water = terrain[Math.floor(py / scale) * cols + Math.floor(px / scale)] === 1;
-        const n = Math.sin(px * 0.09) * Math.cos(py * 0.07) + Math.sin((px + py) * 0.031);
-        const jitter = ((px * 73856093) ^ (py * 19349663)) & 7;
-        const i = (py * canvas.width + px) * 4;
-        if (water) {
-          img.data[i] = 38 + jitter;
-          img.data[i + 1] = 92 + n * 8 + jitter;
-          img.data[i + 2] = 150 + n * 10;
-        } else {
-          const g = 108 + n * 10 + jitter;
-          img.data[i] = g * 0.5;
-          img.data[i + 1] = g;
-          img.data[i + 2] = g * 0.34;
-        }
-        img.data[i + 3] = 255;
-      }
+    this.textures.addCanvas("terrain", paintTerrain(cols, rows, terrain));
+    this.add.image(0, 0, "terrain").setOrigin(0, 0).setScale(TILE / TERRAIN_PX).setDepth(0);
+  }
+
+  private createView(e: EntityView): View {
+    const v: View = { main: null!, last: { ...e }, face: variety(e.id) % 2 ? 1 : -1, movedAt: 0, working: null, workCheckAt: 0, fxAt: 0, frame: 0 };
+    const unit = UNITS[e.type];
+    if (unit) {
+      const w = unit.radius * (e.type === T.Scout ? 3 : 2.4);
+      v.shadow = this.add.image(e.x, e.y + FOOT_OFFSET, "shadow").setDisplaySize(w, w * 0.38).setDepth(DEPTH.shadow);
+      v.main = this.add.image(e.x, e.y, unitTexture(this, e.type, e.owner, colorOf(e.owner), 0)).setOrigin(unitOrigin.x, unitOrigin.y);
+    } else if (BUILDINGS[e.type]) {
+      const g = buildingGeometry(e.type);
+      v.main = this.add.image(e.x, e.y + g.F / 2, buildingTexture(this, e.type, e.owner, colorOf(e.owner)))
+        .setOrigin(g.originX, g.originY)
+        .setDepth(e.type === T.Farm ? DEPTH.farm : worldDepth(e.y + g.F / 2));
+    } else if (e.type === T.Tree) {
+      const n = variety(e.id);
+      v.main = this.add.image(e.x, e.y + TREE_OFFSET, treeTexture(this, n % TREE_VARIANTS))
+        .setOrigin(treeOrigin.x, treeOrigin.y).setFlipX(n % 2 === 0).setDepth(worldDepth(e.y + TREE_OFFSET));
+    } else {
+      const key = e.type === T.GoldMine ? goldTexture(this) : berriesTexture(this, true);
+      v.main = this.add.image(e.x, e.y + 14, key).setOrigin(0.5, e.type === T.GoldMine ? 62 / 80 : 50 / 64).setDepth(worldDepth(e.y + 14));
     }
-    ctx.putImageData(img, 0, 0);
-    this.textures.addCanvas("terrain", canvas);
-    this.add.image(0, 0, "terrain").setOrigin(0, 0).setScale(TILE / scale).setDepth(0);
+    const scale = e.type === T.Tree ? 0.9 + (variety(e.id) % 23) / 100 : 1;
+    v.main.setScale(scale / RES);
+    return v;
   }
 
-  private createTextures(): void {
-    const make = (key: string, w: number, h: number, draw: (g: Phaser.GameObjects.Graphics) => void) => {
-      const g = this.make.graphics({}, false);
-      draw(g);
-      g.generateTexture(key, w, h);
-      g.destroy();
-    };
-    const dark = 0x1a1a1a;
-    // Units: white bodies (tinted per player) with dark markings, which stay dark under the tint.
-    const body = (g: Phaser.GameObjects.Graphics, r: number) => {
-      g.fillStyle(dark, 1).fillCircle(r + 2, r + 2, r + 2);
-      g.fillStyle(0xffffff, 1).fillCircle(r + 2, r + 2, r);
-    };
-    make(`u${T.Villager}`, 30, 30, (g) => { body(g, 13); g.fillStyle(dark, 1).fillCircle(15, 15, 3); });
-    make(`u${T.Spearman}`, 34, 34, (g) => { body(g, 15); g.lineStyle(3, dark, 1).lineBetween(17, 6, 17, 30); g.fillStyle(dark, 1).fillTriangle(12, 10, 22, 10, 17, 2); });
-    make(`u${T.Swordsman}`, 36, 36, (g) => { body(g, 16); g.lineStyle(3, dark, 1).lineBetween(10, 10, 26, 26).lineBetween(26, 10, 10, 26); });
-    make(`u${T.Archer}`, 32, 32, (g) => { body(g, 14); g.lineStyle(2.5, dark, 1).beginPath().arc(13, 16, 9, -1.2, 1.2).strokePath(); g.lineBetween(16, 7, 16, 25); });
-    make(`u${T.Scout}`, 38, 38, (g) => { body(g, 17); g.lineStyle(3, dark, 1).lineBetween(9, 14, 19, 25).lineBetween(19, 25, 29, 14); });
-    // Buildings: white footprints with dark details, tinted per player.
-    for (const [type, def] of Object.entries(BUILDINGS)) {
-      const s = def.size * TILE;
-      make(`b${type}`, s, s, (g) => {
-        if (Number(type) === T.Farm) {
-          g.fillStyle(0xb08d4a, 1).fillRect(2, 2, s - 4, s - 4);
-          g.lineStyle(3, 0x7a5c2a, 1);
-          for (let y = 12; y < s - 4; y += 14) g.lineBetween(6, y, s - 6, y);
-          return;
-        }
-        g.fillStyle(dark, 1).fillRect(2, 2, s - 4, s - 4);
-        g.fillStyle(0xffffff, 1).fillRect(6, 6, s - 12, s - 12);
-        g.lineStyle(4, dark, 1);
-        const c = s / 2;
-        switch (Number(type)) {
-          case T.TownCenter: g.strokeCircle(c, c, s * 0.28); g.fillStyle(dark, 1).fillCircle(c, c, s * 0.1); break;
-          case T.House: g.lineBetween(14, c + 12, c, 16).lineBetween(c, 16, s - 14, c + 12); break;
-          case T.Storehouse: g.strokeRect(c - 20, c - 15, 40, 30).lineBetween(c - 20, c, c + 20, c); break;
-          case T.Barracks: g.lineBetween(c - 32, c - 32, c + 32, c + 32).lineBetween(c + 32, c - 32, c - 32, c + 32); break;
-          case T.ArcheryRange: g.strokeCircle(c, c, 36); g.strokeCircle(c, c, 18); g.fillStyle(dark, 1).fillCircle(c, c, 6); break;
-        }
-      });
-    }
-    make(`n${T.Tree}`, 64, 64, (g) => {
-      g.fillStyle(0x0f2e14, 1).fillCircle(32, 34, 27);
-      g.fillStyle(0x1f5a26, 1).fillCircle(30, 30, 23);
-      g.fillStyle(0x2f7a35, 1).fillCircle(25, 24, 11);
-    });
-    make(`n${T.GoldMine}`, 64, 64, (g) => {
-      g.fillStyle(0x5b4a2a, 1).fillCircle(32, 34, 26);
-      g.fillStyle(0xe8b33c, 1).fillCircle(25, 28, 9).fillCircle(39, 33, 8).fillCircle(30, 41, 7);
-      g.fillStyle(0xfff1a8, 1).fillCircle(23, 26, 3);
-    });
-    make(`n${T.Berries}`, 64, 64, (g) => {
-      g.fillStyle(0x24521f, 1).fillCircle(32, 32, 24);
-      g.fillStyle(0xc0263e, 1);
-      for (const [x, y] of [[22, 24], [36, 22], [42, 36], [28, 40], [33, 31], [20, 35]] as const) g.fillCircle(x, y, 4);
-    });
-  }
-
-  private textureFor(e: EntityView): string {
-    if (UNITS[e.type]) return `u${e.type}`;
-    if (BUILDINGS[e.type]) return `b${e.type}`;
-    return `n${e.type}`;
-  }
-
-  private syncSprites(): void {
+  private syncSprites(now: number): void {
     for (const [id, e] of this.entities) {
-      let sprite = this.sprites.get(id);
-      if (!sprite) {
-        sprite = this.add.image(e.x, e.y, this.textureFor(e));
-        if (e.owner !== GAIA && e.type !== T.Farm) sprite.setTint(PLAYER_COLORS[e.owner % PLAYER_COLORS.length]!);
-        sprite.setDepth(UNITS[e.type] ? 5 : e.type === T.Farm ? 1 : BUILDINGS[e.type] ? 2 : 3);
-        this.sprites.set(id, sprite);
+      let v = this.views.get(id);
+      if (!v) {
+        v = this.createView(e);
+        this.views.set(id, v);
+        v.last.hp = -1; // force a first update
       }
-      sprite.setPosition(e.x, e.y);
-      sprite.setAlpha(e.flags & EF.UnderConstruction ? 0.5 : 1);
-      if (UNITS[e.type]) sprite.setScale(e.flags & EF.Attacking ? 1.15 : 1);
+      if (UNITS[e.type]) this.updateUnit(v, e, now);
+      else if (BUILDINGS[e.type]) this.updateBuilding(v, e, now);
+      else if (e.hp !== v.last.hp && e.type === T.Berries) v.main.setTexture(berriesTexture(this, e.hp > NODES[T.Berries]!.amount / 2));
+      v.last.x = e.x;
+      v.last.y = e.y;
+      v.last.hp = e.hp;
+      v.last.flags = e.flags;
     }
-    for (const [id, sprite] of this.sprites) {
+    for (const [id, v] of this.views) {
       if (this.entities.has(id)) continue;
-      sprite.destroy();
-      this.sprites.delete(id);
+      this.onGone(v);
+      v.main.destroy();
+      v.shadow?.destroy();
+      v.foundation?.destroy();
+      this.views.delete(id);
       if (this.selected.delete(id)) this.onChange();
+    }
+  }
+
+  private updateUnit(v: View, e: EntityView, now: number): void {
+    const dx = e.x - v.last.x, dy = e.y - v.last.y;
+    if (dx * dx + dy * dy > 0.01) {
+      v.movedAt = now;
+      if (Math.abs(dx) > 0.05) v.face = dx > 0 ? 1 : -1;
+    }
+    const moving = now - v.movedAt < 150;
+    const attacking = (e.flags & EF.Attacking) !== 0;
+    if (attacking && !(v.last.flags & EF.Attacking)) this.onStrike(v, e);
+
+    // A villager standing still with an order next to a resource or building site is working.
+    if (e.type !== T.Villager || moving || e.flags & EF.Idle) v.working = null;
+    else if (now > v.workCheckAt) {
+      v.working = this.workTarget(e);
+      v.workCheckAt = now + 400;
+    }
+    if (v.working && Math.abs(v.working.x - e.x) > 4) v.face = v.working.x > e.x ? 1 : -1;
+
+    let frame: Frame = 0;
+    if (attacking) frame = 3;
+    else if (moving) frame = Math.floor(now / 150 + e.id * 0.5) % 2 ? 1 : 2;
+    else if (v.working) frame = Math.floor(now / 400 + e.id * 0.3) % 2 ? 3 : 0;
+    if (frame === 3 && v.frame !== 3 && v.working) this.workFx(v.working, e);
+    v.frame = frame;
+
+    const key = unitTexture(this, e.type, e.owner, colorOf(e.owner), frame, e.type === T.Villager && (e.flags & EF.Carrying) !== 0);
+    if (v.main.texture.key !== key) v.main.setTexture(key);
+    const y = e.y + FOOT_OFFSET;
+    const lunge = attacking && e.type !== T.Archer ? v.face * 4 : 0;
+    v.main.setPosition(e.x + lunge, y).setFlipX(v.face < 0).setDepth(worldDepth(y));
+    v.shadow!.setPosition(e.x, y);
+  }
+
+  private updateBuilding(v: View, e: EntityView, now: number): void {
+    const def = BUILDINGS[e.type]!;
+    const g = buildingGeometry(e.type);
+    const building = (e.flags & EF.UnderConstruction) !== 0;
+    if (building) {
+      if (!v.foundation) v.foundation = this.add.image(e.x, e.y, foundationTexture(this, def.size)).setScale(1 / RES).setDepth(DEPTH.foundation);
+      if (e.hp !== v.last.hp) {
+        const p = Phaser.Math.Clamp(e.hp / def.hp, 0, 1);
+        if (e.type === T.Farm) v.main.setAlpha(0.25 + p * 0.75);
+        else {
+          // Rise from the ground up as the work progresses.
+          const cut = Math.floor((g.rise + g.F) * RES * (1 - Math.max(0.04, p)));
+          v.main.setCrop(0, cut, g.w * RES, g.h * RES - cut);
+        }
+        if (v.last.hp >= 0 && now > v.fxAt) {
+          this.fx.dust(e.x + (Math.random() - 0.5) * g.F * 0.8, e.y + (Math.random() - 0.2) * g.F * 0.5);
+          v.fxAt = now + 350;
+        }
+      }
+      return;
+    }
+    if (v.foundation) {
+      v.foundation.destroy();
+      v.foundation = undefined;
+      v.main.setCrop().setAlpha(1);
+      if (v.last.hp >= 0) for (let i = 0; i < 6; i++) this.fx.dust(e.x + (Math.random() - 0.5) * g.F, e.y + g.F * 0.3);
+    }
+    if (e.type === T.Farm) {
+      if (e.hp !== v.last.hp) v.main.setTint(mix(0x9a8060, 0xffffff, 0.3 + 0.7 * Phaser.Math.Clamp(e.hp / FARM_FOOD, 0, 1)));
+      return;
+    }
+    if (e.flags & EF.Attacking && !(v.last.flags & EF.Attacking)) this.onStrike(v, e);
+    // Smoke, then fire, as a building takes damage.
+    const health = e.hp / def.hp;
+    if (health < 0.66 && now > v.fxAt) {
+      const x = e.x + (Math.random() - 0.5) * g.F * 0.6, y = e.y - g.F * 0.2 + (Math.random() - 0.5) * g.F * 0.4;
+      this.fx.smoke(x, y);
+      if (health < 0.4) this.fx.flame(x, y + 6);
+      v.fxAt = now + (health < 0.4 ? 160 : 450);
+    }
+  }
+
+  /** A unit or Town Center just struck: face the target and show the blow or the arrow. */
+  private onStrike(v: View, e: EntityView): void {
+    const unit = UNITS[e.type];
+    const tc = BUILDINGS[e.type]?.attack;
+    const reach = unit ? unit.range + unit.radius + 80 : (tc?.range ?? 0) + 120;
+    const target = this.nearestHostile(e, reach);
+    if (!target) return;
+    const ty = target.y - (UNITS[target.type] ? 14 : 0);
+    if (unit) v.face = target.x >= e.x ? 1 : -1;
+    if (e.type === T.Archer) this.fx.arrow(e.x + v.face * 14, e.y - 10, target.x, ty);
+    else if (tc) this.fx.arrow(e.x, e.y - buildingGeometry(e.type).F * 0.55, target.x, ty);
+    else this.fx.hit((e.x + target.x) / 2, (e.y + ty) / 2 - 6);
+  }
+
+  private nearestHostile(e: EntityView, reach: number): EntityView | null {
+    let best: EntityView | null = null;
+    let bestD = reach * reach;
+    for (const o of this.entities.values()) {
+      if (o.owner === GAIA || o.owner === e.owner || this.sameTeam(o.owner, e.owner)) continue;
+      const pad = (BUILDINGS[o.type]?.size ?? 0) * TILE * 0.5;
+      const d = (o.x - e.x) ** 2 + (o.y - e.y) ** 2 - pad * pad;
+      if (d < bestD) {
+        bestD = d;
+        best = o;
+      }
+    }
+    return best;
+  }
+
+  private sameTeam(a: number, b: number): boolean {
+    const seats = this.net.started!.seats;
+    const ta = seats.find((s) => s.slot === a)?.team ?? 0;
+    return ta !== 0 && ta === seats.find((s) => s.slot === b)?.team;
+  }
+
+  /** The resource, field or building site next to a villager, if any. */
+  private workTarget(e: EntityView): EntityView | null {
+    const tx = Math.floor(e.x / TILE), ty = Math.floor(e.y / TILE);
+    for (let y = ty - 1; y <= ty + 1; y++) {
+      for (let x = tx - 1; x <= tx + 1; x++) {
+        if (x < 0 || y < 0 || x >= this.cols || y >= this.rows) continue;
+        const o = this.entities.get(this.occupant[y * this.cols + x]! - 1);
+        if (o && (NODES[o.type] || o.type === T.Farm || o.flags & EF.UnderConstruction)) return o;
+      }
+    }
+    return null;
+  }
+
+  private workFx(target: EntityView, e: EntityView): void {
+    const x = (e.x + target.x) / 2, y = e.y - 4;
+    if (target.type === T.Tree) this.fx.chips(x, y - 8, 0xd8b07a);
+    else if (target.type === T.GoldMine) this.fx.chips(x, y - 6, 0xffd75a);
+    else if (target.type === T.Farm || target.flags & EF.UnderConstruction) this.fx.dust(e.x + this.face(e) * 10, e.y + 10);
+  }
+
+  private face(e: EntityView): number {
+    return this.views.get(e.id)?.face ?? 1;
+  }
+
+  /** What's left when an entity disappears: a fallen unit, rubble, a stump. */
+  private onGone(v: View): void {
+    const e = v.last;
+    if (e.hp < 0) return;
+    const tx = Math.floor(e.x / TILE), ty = Math.floor(e.y / TILE);
+    // Everything near this spot is in sight, so it didn't just walk into the fog.
+    let inSight = true;
+    for (let y = ty - 1; y <= ty + 1 && inSight; y++) {
+      for (let x = tx - 1; x <= tx + 1; x++) if (this.fog[Math.max(0, Math.min(this.rows - 1, y)) * this.cols + Math.max(0, Math.min(this.cols - 1, x))] !== 2) inSight = false;
+    }
+    const unit = UNITS[e.type];
+    const building = BUILDINGS[e.type];
+    if (unit) {
+      if (this.isFriendly(e.owner) || (inSight && e.hp <= unit.hp * 0.5)) this.fx.corpse(v.main);
+    } else if (building) {
+      if (e.type !== T.Farm && (this.isFriendly(e.owner) || inSight)) this.fx.collapse(v.main, e.x, e.y, building.size);
+    } else if (e.type === T.Tree) {
+      this.fx.stump(e.x, e.y + 10);
     }
   }
 
@@ -390,12 +517,17 @@ export class GameScene extends Phaser.Scene {
   private updateOccupancy(): void {
     const { cols, rows } = this;
     this.occupancy.set(this.net.started!.terrain);
+    this.occupant.fill(0);
     for (const e of (this.net.latest() ?? this.entities).values()) {
       const size = BUILDINGS[e.type]?.size ?? (NODES[e.type] ? 1 : 0);
       if (size === 0) continue;
       const tx = Math.round(e.x / TILE - size / 2), ty = Math.round(e.y / TILE - size / 2);
       for (let y = ty; y < ty + size; y++) {
-        for (let x = tx; x < tx + size; x++) if (x >= 0 && y >= 0 && x < cols && y < rows) this.occupancy[y * cols + x] = 1;
+        for (let x = tx; x < tx + size; x++) {
+          if (x < 0 || y < 0 || x >= cols || y >= rows) continue;
+          this.occupancy[y * cols + x] = 1;
+          this.occupant[y * cols + x] = e.id + 1;
+        }
       }
     }
   }
@@ -422,17 +554,19 @@ export class GameScene extends Phaser.Scene {
       const selected = this.selected.has(e.id);
       if (!selected && !Phaser.Geom.Rectangle.Contains(view, e.x, e.y)) continue;
       const size = (BUILDINGS[e.type]?.size ?? (NODES[e.type] ? 1 : 0)) * TILE;
+      const radius = UNITS[e.type]?.radius ?? 16;
       if (selected) {
         g.lineStyle(px(2), e.owner === this.me ? 0xffffff : e.owner === GAIA ? 0xe8e0b0 : 0xff6b6b, 0.95);
         if (size) g.strokeRect(e.x - size / 2 - 3, e.y - size / 2 - 3, size + 6, size + 6);
-        else g.strokeCircle(e.x, e.y, (UNITS[e.type]?.radius ?? 16) + 5);
+        else g.strokeEllipse(e.x, e.y + FOOT_OFFSET, radius * 2.8, radius * 1.3);
       }
       // Health bars for selected or damaged units and buildings.
       const max = UNITS[e.type]?.hp ?? BUILDINGS[e.type]?.hp;
       if (!max || e.owner === GAIA || (e.type === T.Farm && !(e.flags & EF.UnderConstruction))) continue;
       if (!selected && e.hp >= max) continue;
       const w = size ? size * 0.8 : 30;
-      const y = e.y - (size ? size / 2 + 12 : (UNITS[e.type]?.radius ?? 16) + 10);
+      const above = e.flags & EF.UnderConstruction ? 0 : buildingGeometry(e.type).rise * 0.8;
+      const y = size ? e.y - size / 2 - above - 8 : e.y + FOOT_OFFSET - UNIT_HEIGHT - 8;
       const frac = Math.max(0, Math.min(1, e.hp / max));
       g.fillStyle(0x000000, 0.8).fillRect(e.x - w / 2, y, w, px(5));
       g.fillStyle(e.flags & EF.UnderConstruction ? 0x60a5fa : frac > 0.5 ? 0x4ade80 : frac > 0.25 ? 0xfacc15 : 0xef4444, 1)
@@ -461,13 +595,25 @@ export class GameScene extends Phaser.Scene {
 
   private drawGhost(): void {
     const g = this.ghost.clear();
-    if (this.mode.k !== "place") return;
+    if (this.mode.k !== "place") {
+      this.ghostSprite.setVisible(false);
+      return;
+    }
+    const type = this.mode.building;
     const p = this.input.activePointer;
-    const size = BUILDINGS[this.mode.building]!.size;
+    const size = BUILDINGS[type]!.size;
     const w = this.cameras.main.getWorldPoint(p.x, p.y);
     const tx = Math.round(w.x / TILE - size / 2), ty = Math.round(w.y / TILE - size / 2);
-    const ok = this.canPlaceHere(this.mode.building, tx, ty);
-    g.fillStyle(ok ? 0x4ade80 : 0xef4444, 0.35).fillRect(tx * TILE, ty * TILE, size * TILE, size * TILE);
+    const ok = this.canPlaceHere(type, tx, ty);
+    const geo = buildingGeometry(type);
+    this.ghostSprite
+      .setTexture(buildingTexture(this, type, this.me, colorOf(this.me)))
+      .setOrigin(geo.originX, geo.originY)
+      .setPosition((tx + size / 2) * TILE, (ty + size) * TILE)
+      .setTint(ok ? 0xffffff : 0xff7070)
+      .setAlpha(0.7)
+      .setVisible(true);
+    g.fillStyle(ok ? 0x4ade80 : 0xef4444, 0.25).fillRect(tx * TILE, ty * TILE, size * TILE, size * TILE);
     g.lineStyle(2 / this.cameras.main.zoom, ok ? 0x4ade80 : 0xef4444, 0.9).strokeRect(tx * TILE, ty * TILE, size * TILE, size * TILE);
   }
 
@@ -484,10 +630,13 @@ export class GameScene extends Phaser.Scene {
     let best: EntityView | null = null;
     let bestRank = Infinity;
     for (const e of this.entities.values()) {
-      const size = (BUILDINGS[e.type]?.size ?? (NODES[e.type] ? 1 : 0)) * TILE;
-      const hit = size
-        ? Math.abs(wx - e.x) <= size / 2 && Math.abs(wy - e.y) <= size / 2
-        : Math.hypot(wx - e.x, wy - e.y) <= (UNITS[e.type]?.radius ?? 16) + 6;
+      // Sprites rise above the ground they stand on, so the clickable area does too.
+      const unit = UNITS[e.type];
+      const size = (BUILDINGS[e.type]?.size ?? 1) * TILE;
+      const above = unit ? 0 : BUILDINGS[e.type] ? buildingGeometry(e.type).rise * 0.8 : e.type === T.Tree ? 50 : 16;
+      const hit = unit
+        ? Math.abs(wx - e.x) <= unit.radius + 4 && wy <= e.y + FOOT_OFFSET + 4 && wy >= e.y + FOOT_OFFSET - UNIT_HEIGHT
+        : Math.abs(wx - e.x) <= size / 2 && wy <= e.y + size / 2 && wy >= e.y - size / 2 - above;
       if (!hit) continue;
       const rank = UNITS[e.type] ? 0 : BUILDINGS[e.type] ? 1 : 2;
       if (rank < bestRank) {

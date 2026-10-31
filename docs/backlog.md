@@ -13,7 +13,7 @@ Things noticed but deliberately not done yet. Newest context first.
 - Bot reads enemy Town Center positions directly instead of scouting through fog.
 - Enemy buildings disappear when they leave vision; classic RTS keeps a "last seen" ghost.
 - No projectiles: ranged hits land instantly. Add visible arrows (cosmetic) for readability.
-- Units have no facing/animation; buildings have no damage states. Placeholder art throughout (shapes).
+- Art is procedural (Canvas-painted at load). Next steps: a commissioned or hand-made art set once demand is proven; unit portraits/icons in the HUD; water animation; render at device pixel ratio on high-DPI screens (currently CSS-pixel resolution, slightly soft on Retina).
 - Farms don't limit one villager each.
 - Sound: none yet.
 - Stone, walls, towers, siege, healers, Stable, Blacksmith, Market, ages III–IV (PLAN §3 "deferred").

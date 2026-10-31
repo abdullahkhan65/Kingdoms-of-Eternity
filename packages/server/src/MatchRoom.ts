@@ -5,7 +5,7 @@ import {
   type EntityView, type LobbyState, type PlayersMsg, type SeatInfo, type StartedMsg, type YouMsg,
 } from "@koe/protocol";
 import {
-  BOT_INTERVAL, CIVS, GAIA, MAX_PLAYERS, T, TICK_RATE, TILE, UNITS,
+  BOT_INTERVAL, CIVS, GAIA, MAX_PLAYERS, MAX_POP, T, TICK_RATE, TILE, UNITS,
   applyCommand, entitiesVisibleTo, generateMatch, newBotMemory, population, queueItemTime, runBot, spawnUnit, step, teamOf,
   type BotMemory, type Entity, type World,
 } from "@koe/sim";
@@ -47,11 +47,11 @@ export class MatchRoom extends Room<{ client: PlayerClient }> {
   private stats = new StatsCollector();
   private loop?: NodeJS.Timeout;
 
-  override onCreate(options: MatchOptions = {}): void {
-    this.options = options;
+  override onCreate(options: unknown): void {
+    this.options = cleanOptions(options);
     this.maxClients = MAX_PLAYERS;
     this.patchRate = null; // we send our own snapshots
-    for (let i = 0; i < Math.min(options.bots ?? 0, MAX_PLAYERS - 1); i++) this.addBot();
+    for (let i = 0; i < (this.options.bots ?? 0); i++) this.addBot();
 
     this.onMessage(Msg.SetSeat, (client, msg: unknown) => this.setSeat(client, msg));
     this.onMessage(Msg.AddBot, (client) => {
@@ -321,6 +321,19 @@ function* toViews(entities: Iterable<Entity>): Iterable<EntityView> {
     view.flags = flags;
     yield view;
   }
+}
+
+/** Room options come from whoever creates the room, so clamp them to sane values. */
+export function cleanOptions(raw: unknown): MatchOptions {
+  const o = (typeof raw === "object" && raw !== null ? raw : {}) as Record<string, unknown>;
+  const int = (v: unknown, max: number) => (typeof v === "number" && Number.isInteger(v) ? Math.max(0, Math.min(max, v)) : undefined);
+  return {
+    bots: int(o.bots, MAX_PLAYERS - 1),
+    autoStart: o.autoStart === true,
+    seed: int(o.seed, 2 ** 31 - 1),
+    // A full population per player: the most a real match can reach.
+    extraUnits: int(o.extraUnits, MAX_POP),
+  };
 }
 
 function publicSeat({ slot, name, team, civ, bot, connected }: Seat): SeatInfo {

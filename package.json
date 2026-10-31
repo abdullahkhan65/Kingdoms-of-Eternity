@@ -14,6 +14,7 @@
     "client": "npm run dev -w @koe/client",
     "build:client": "npm run build -w @koe/client",
     "smoke": "tsx packages/client/test/smoke.ts",
+    "look": "tsx packages/client/test/look.ts",
     "deploy": "./scripts/deploy.sh",
     "balance": "tsx packages/bot/src/balance.ts"
   },
